@@ -695,6 +695,7 @@ impl GovernanceContract {
 mod test {
     use super::*;
     use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::Ledger as _;
     use soroban_sdk::Env;
 
     fn setup_contract() -> (Env, Address, GovernanceContractClient<'static>) {
@@ -778,5 +779,168 @@ mod test {
         client.vote(&member1, &proposal_id, &true);
 
         assert_eq!(client.has_voted(&proposal_id, &member1), true);
+    }
+
+    #[test]
+    fn test_execute_proposal_add_member() {
+        let (env, admin, client) = setup_contract();
+
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let new_member = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone(), member2.clone()]);
+
+        client.initialize(&admin, &members, &50, &10);
+
+        let proposal_id = client.create_proposal(
+            &member1,
+            &symbol_short!("add_mem"),
+            &symbol_short!("new_mem"),
+            &ProposalAction::AddMember,
+            &0,
+            &new_member,
+        );
+
+        client.vote(&member1, &proposal_id, &true);
+        client.vote(&member2, &proposal_id, &true);
+
+        env.ledger().set_sequence_number(100);
+
+        let status = client.finalize(&member1, &proposal_id);
+        assert_eq!(status, ProposalStatus::Passed);
+
+        client.execute_proposal(&admin, &proposal_id);
+
+        let proposal = client.get_proposal(&proposal_id);
+        assert_eq!(proposal.status, ProposalStatus::Executed);
+
+        let all_members = client.get_members();
+        assert_eq!(all_members.len(), 3);
+    }
+
+    #[test]
+    fn test_execute_proposal_remove_member() {
+        let (env, admin, client) = setup_contract();
+
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let member3 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone(), member2.clone(), member3.clone()]);
+
+        client.initialize(&admin, &members, &50, &10);
+
+        let proposal_id = client.create_proposal(
+            &member1,
+            &symbol_short!("rem_mem"),
+            &symbol_short!("rem"),
+            &ProposalAction::RemoveMember,
+            &0,
+            &member3,
+        );
+
+        client.vote(&member1, &proposal_id, &true);
+        client.vote(&member2, &proposal_id, &true);
+
+        env.ledger().set_sequence_number(100);
+
+        client.finalize(&member1, &proposal_id);
+        client.execute_proposal(&member1, &proposal_id);
+
+        let proposal = client.get_proposal(&proposal_id);
+        assert_eq!(proposal.status, ProposalStatus::Executed);
+
+        let all_members = client.get_members();
+        assert_eq!(all_members.len(), 2);
+    }
+
+    #[test]
+    fn test_execute_proposal_unauthorized() {
+        let (env, admin, client) = setup_contract();
+
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let member3 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone(), member2.clone()]);
+
+        client.initialize(&admin, &members, &50, &10);
+
+        let proposal_id = client.create_proposal(
+            &member1,
+            &symbol_short!("test"),
+            &symbol_short!("test"),
+            &ProposalAction::General,
+            &0,
+            &member1,
+        );
+
+        client.vote(&member1, &proposal_id, &true);
+        client.vote(&member2, &proposal_id, &true);
+
+        env.ledger().set_sequence_number(100);
+
+        client.finalize(&member1, &proposal_id);
+
+        let result = client.try_execute_proposal(&member3, &proposal_id);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
+
+    #[test]
+    fn test_execute_proposal_already_executed() {
+        let (env, admin, client) = setup_contract();
+
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone(), member2.clone()]);
+
+        client.initialize(&admin, &members, &50, &10);
+
+        let proposal_id = client.create_proposal(
+            &member1,
+            &symbol_short!("test"),
+            &symbol_short!("test"),
+            &ProposalAction::General,
+            &0,
+            &member1,
+        );
+
+        client.vote(&member1, &proposal_id, &true);
+        client.vote(&member2, &proposal_id, &true);
+
+        env.ledger().set_sequence_number(100);
+
+        client.finalize(&member1, &proposal_id);
+        client.execute_proposal(&admin, &proposal_id);
+
+        let result = client.try_execute_proposal(&admin, &proposal_id);
+        assert_eq!(result, Err(Ok(Error::ProposalRejected)));
+    }
+
+    #[test]
+    fn test_execute_proposal_emits_event() {
+        let (env, admin, client) = setup_contract();
+
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone(), member2.clone()]);
+
+        client.initialize(&admin, &members, &50, &10);
+
+        let proposal_id = client.create_proposal(
+            &member1,
+            &symbol_short!("test"),
+            &symbol_short!("test"),
+            &ProposalAction::General,
+            &0,
+            &member1,
+        );
+
+        client.vote(&member1, &proposal_id, &true);
+        client.vote(&member2, &proposal_id, &true);
+
+        env.ledger().set_sequence_number(100);
+
+        client.finalize(&member1, &proposal_id);
+
+        client.execute_proposal(&admin, &proposal_id);
     }
 }

@@ -257,11 +257,7 @@ impl TreasuryContract {
 
         // Read and update the per-(depositor, token) balance.
         let storage_key = DataKey::TokenBalance(from.clone(), token_address.clone());
-        let current_balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&storage_key)
-            .unwrap_or(0);
+        let current_balance: i128 = env.storage().persistent().get(&storage_key).unwrap_or(0);
         let new_balance = current_balance + amount;
         env.storage().persistent().set(&storage_key, &new_balance);
 
@@ -890,8 +886,7 @@ mod test {
         let signer1 = Address::generate(&env);
         let signer2 = Address::generate(&env);
         let signer3 = Address::generate(&env);
-        let signers =
-            Vec::from_array(&env, [signer1.clone(), signer2.clone(), signer3.clone()]);
+        let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone(), signer3.clone()]);
 
         client.initialize(&admin, &2, &signers);
 
@@ -921,7 +916,47 @@ mod test {
         assert_eq!(tx.id, tx_id);
         assert_eq!(tx.to, recipient);
         assert_eq!(tx.amount, 1_000_000);
+        assert_eq!(tx.memo, symbol_short!("rent"));
+        assert_eq!(tx.proposer, signer1);
+        assert_eq!(tx.approvals.len(), 1);
+        assert_eq!(tx.approvals.get(0).unwrap(), signer1);
         assert_eq!(tx.executed, false);
+    }
+
+    #[test]
+    fn test_propose_rejects_non_signer() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer.clone()]);
+        client.initialize(&admin, &1, &signers);
+        client.deposit(&signer, &5_000_000);
+
+        let non_signer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        let result = client.try_propose_withdrawal(
+            &non_signer,
+            &recipient,
+            &1_000_000,
+            &symbol_short!("rent"),
+        );
+        assert_eq!(result, Err(Ok(Error::NotASigner)));
+    }
+
+    #[test]
+    fn test_propose_rejects_insufficient_funds() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer.clone()]);
+        client.initialize(&admin, &1, &signers);
+
+        let recipient = Address::generate(&env);
+
+        let result =
+            client.try_propose_withdrawal(&signer, &recipient, &1_000_000, &symbol_short!("rent"));
+        assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
     }
 
     #[test]

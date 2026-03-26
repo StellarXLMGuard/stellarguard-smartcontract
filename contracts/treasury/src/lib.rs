@@ -880,6 +880,102 @@ mod test {
     }
 
     #[test]
+    fn test_full_treasury_workflow_emits_expected_events() {
+        let (env, admin, contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signer2 = Address::generate(&env);
+        let signer3 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone(), signer3.clone()]);
+        client.initialize(&admin, &2, &signers);
+
+        client.deposit(&signer1, &8_000_000);
+
+        let recipient = Address::generate(&env);
+        let tx_id =
+            client.propose_withdrawal(&signer1, &recipient, &3_000_000, &symbol_short!("ops"));
+
+        let approvals = client.approve(&signer2, &tx_id);
+        assert_eq!(approvals, 2);
+
+        client.execute(&signer3, &tx_id);
+
+        let config = client.get_config();
+        assert_eq!(config.balance, 5_000_000);
+
+        let transaction = client.get_transaction(&tx_id);
+        assert_eq!(transaction.executed, true);
+        assert_eq!(transaction.amount, 3_000_000);
+        assert_eq!(transaction.to, recipient);
+
+        let events = env.events().all();
+        assert_eq!(events.len(), 5);
+
+        let init_event = events.get(0).unwrap();
+        assert_eq!(init_event.0, contract_id);
+        assert_eq!(
+            init_event.1,
+            vec![
+                &env,
+                symbol_short!("treasury").into_val(&env),
+                symbol_short!("init").into_val(&env),
+            ]
+        );
+
+        let deposit_event = events.get(1).unwrap();
+        assert_eq!(deposit_event.0, contract_id);
+        assert_eq!(
+            deposit_event.1,
+            vec![
+                &env,
+                symbol_short!("treasury").into_val(&env),
+                symbol_short!("deposit").into_val(&env),
+            ]
+        );
+
+        let propose_event = events.get(2).unwrap();
+        assert_eq!(propose_event.0, contract_id);
+        assert_eq!(
+            propose_event.1,
+            vec![
+                &env,
+                symbol_short!("treasury").into_val(&env),
+                symbol_short!("propose").into_val(&env),
+            ]
+        );
+
+        let approve_event = events.get(3).unwrap();
+        assert_eq!(approve_event.0, contract_id);
+        assert_eq!(
+            approve_event.1,
+            vec![
+                &env,
+                symbol_short!("treasury").into_val(&env),
+                symbol_short!("approve").into_val(&env),
+            ]
+        );
+
+        let execute_event = events.get(events.len() - 1).unwrap();
+        let actual_data: Vec<Val> = Vec::try_from_val(&env, &execute_event.2).unwrap();
+        let expected_data: Vec<Val> = vec![
+            &env,
+            tx_id.into_val(&env),
+            recipient.into_val(&env),
+            3_000_000_i128.into_val(&env),
+            5_000_000_i128.into_val(&env),
+        ];
+        assert_eq!(
+            execute_event.1,
+            vec![
+                &env,
+                symbol_short!("treasury").into_val(&env),
+                symbol_short!("execute").into_val(&env),
+            ]
+        );
+        assert_eq!(actual_data, expected_data);
+    }
+
+    #[test]
     fn test_get_signers() {
         let (env, admin, _contract_id, client) = setup_contract();
 

@@ -775,6 +775,59 @@ mod test {
     }
 
     #[test]
+    fn test_full_lock_workflow_lock_wait_claim() {
+        let (env, admin, contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        client.initialize(&admin, &signers, &1);
+
+        let start_time = 5_000;
+        env.ledger().set_timestamp(start_time);
+
+        let owner = Address::generate(&env);
+        let lock_id = client.lock_tokens(&owner, &400_000, &120, &symbol_short!("ops"));
+
+        env.ledger().set_timestamp(start_time + 120);
+        let claimed = client.claim(&owner, &lock_id);
+        assert_eq!(claimed, 400_000);
+
+        let lock = client.get_lock(&lock_id);
+        assert_eq!(lock.claimed, true);
+
+        let stats = client.get_stats();
+        assert_eq!(stats.total_locked, 0);
+
+        let events = env.events().all();
+        assert_eq!(events.len(), 3);
+        assert_eq!(
+            events.get(0).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("init").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(1).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("lock").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(2).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("claim").into_val(&env),
+            ]
+        );
+        assert_eq!(events.get(2).unwrap().0, contract_id);
+    }
+
+    #[test]
     fn test_create_vesting() {
         let (env, admin, _contract_id, client) = setup_contract();
 
@@ -907,6 +960,81 @@ mod test {
     }
 
     #[test]
+    fn test_full_vesting_workflow_create_cliff_partial_full_claim() {
+        let (env, admin, contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        client.initialize(&admin, &signers, &1);
+
+        let start_time = 20_000;
+        env.ledger().set_timestamp(start_time);
+
+        let beneficiary = Address::generate(&env);
+        let vesting_id = client.create_vesting(
+            &admin,
+            &beneficiary,
+            &900_000,
+            &90,
+            &30,
+            &symbol_short!("team"),
+        );
+
+        env.ledger().set_timestamp(start_time + 29);
+        let before_cliff = client.try_claim_vested(&beneficiary, &vesting_id);
+        assert_eq!(before_cliff, Err(Ok(Error::NothingToClaim)));
+
+        env.ledger().set_timestamp(start_time + 45);
+        let partial = client.claim_vested(&beneficiary, &vesting_id);
+        assert_eq!(partial, 450_000);
+
+        env.ledger().set_timestamp(start_time + 90);
+        let final_claim = client.claim_vested(&beneficiary, &vesting_id);
+        assert_eq!(final_claim, 450_000);
+
+        let schedule = client.get_vesting(&vesting_id);
+        assert_eq!(schedule.claimed_amount, 900_000);
+
+        let stats = client.get_stats();
+        assert_eq!(stats.total_locked, 0);
+
+        let events = env.events().all();
+        assert_eq!(
+            events.get(0).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("init").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(1).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("vest").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(2).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("v_claim").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(3).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("v_claim").into_val(&env),
+            ]
+        );
+        assert_eq!(events.get(3).unwrap().0, contract_id);
+    }
+
+    #[test]
     fn test_approve_emergency() {
         let (env, admin, contract_id, client) = setup_contract();
 
@@ -1018,6 +1146,74 @@ mod test {
         ];
         let actual_data: Vec<Val> = Vec::try_from_val(&env, &event.2).unwrap();
         assert_eq!(actual_data, expected_data);
+    }
+
+    #[test]
+    fn test_full_emergency_unlock_workflow_approvals_then_unlock() {
+        let (env, admin, contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signer2 = Address::generate(&env);
+        let signer3 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone(), signer3.clone()]);
+        client.initialize(&admin, &signers, &2);
+
+        let owner = Address::generate(&env);
+        let lock_id = client.lock_tokens(&owner, &700_000, &3_600, &symbol_short!("safe"));
+
+        client.approve_emergency(&signer1, &lock_id);
+        client.approve_emergency(&signer2, &lock_id);
+        let amount = client.emergency_unlock(&owner, &lock_id);
+        assert_eq!(amount, 700_000);
+
+        let lock = client.get_lock(&lock_id);
+        assert_eq!(lock.claimed, true);
+
+        let stats = client.get_stats();
+        assert_eq!(stats.total_locked, 0);
+
+        let events = env.events().all();
+        assert_eq!(
+            events.get(0).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("init").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(1).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("lock").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(2).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("emrg_ap").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(3).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("emrg_ap").into_val(&env),
+            ]
+        );
+        assert_eq!(
+            events.get(4).unwrap().1,
+            vec![
+                &env,
+                symbol_short!("vault").into_val(&env),
+                symbol_short!("emrg_ex").into_val(&env),
+            ]
+        );
+        assert_eq!(events.get(4).unwrap().0, contract_id);
     }
 
     #[test]

@@ -901,6 +901,36 @@ mod test {
         assert_eq!(client.get_balance(), 1_000_000);
     }
 
+    /// Integration test for SC-26: verify `deposit` actually moves the
+    /// underlying SAC tokens from the depositor into the treasury contract
+    /// rather than only incrementing the bookkeeping balance.
+    #[test]
+    fn test_deposit_moves_real_tokens_on_chain() {
+        let (env, admin, contract_id, client) = setup_contract();
+
+        let signer = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        let depositor = Address::generate(&env);
+        mint_asset(&env, &asset, &depositor, 5_000_000);
+
+        let token = TokenClient::new(&env, &asset);
+        assert_eq!(token.balance(&depositor), 5_000_000);
+        assert_eq!(token.balance(&contract_id), 0);
+
+        client.deposit(&depositor, &2_000_000);
+
+        assert_eq!(token.balance(&contract_id), 2_000_000);
+        assert_eq!(token.balance(&depositor), 3_000_000);
+        assert_eq!(client.get_balance(), 2_000_000);
+
+        client.deposit(&depositor, &1_500_000);
+        assert_eq!(token.balance(&contract_id), 3_500_000);
+        assert_eq!(token.balance(&depositor), 1_500_000);
+        assert_eq!(client.get_balance(), 3_500_000);
+    }
+
     #[test]
     fn test_propose_and_approve() {
         let (env, admin, _contract_id, client) = setup_contract();

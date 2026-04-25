@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 2,
     "nonce": 0
   },
   "auth": [
@@ -17,14 +17,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u32": 1
+                  "vec": []
                 },
                 {
-                  "vec": [
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                    }
-                  ]
+                  "u32": 50
+                },
+                {
+                  "u32": 10
                 }
               ]
             }
@@ -84,21 +83,6 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "Balance"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "i128": {
-                            "hi": 0,
-                            "lo": 0
-                          }
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "Initialized"
                             }
                           ]
@@ -111,40 +95,48 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "Signers"
+                              "symbol": "Members"
                             }
                           ]
                         },
                         "val": {
-                          "vec": [
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                            }
-                          ]
+                          "vec": []
                         }
                       },
                       {
                         "key": {
                           "vec": [
                             {
-                              "symbol": "Threshold"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 1
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "TxCounter"
+                              "symbol": "ProposalCounter"
                             }
                           ]
                         },
                         "val": {
                           "u64": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "QuorumPercent"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 50
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "VotingPeriod"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 10
                         }
                       }
                     ]
@@ -238,14 +230,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u32": 1
+                  "vec": []
                 },
                 {
-                  "vec": [
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                    }
-                  ]
+                  "u32": 50
+                },
+                {
+                  "u32": 10
                 }
               ]
             }
@@ -263,7 +254,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "treasury"
+                "symbol": "gov"
               },
               {
                 "symbol": "init"
@@ -275,10 +266,10 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u32": 1
+                  "u32": 0
                 },
                 {
-                  "u32": 1
+                  "u32": 50
                 }
               ]
             }
@@ -302,13 +293,13 @@
             "data": {
               "vec": [
                 {
-                  "string": "Treasury initialized with {} signers, threshold {}"
+                  "string": "Governance initialized: {} members, {}% quorum"
                 },
                 {
-                  "u32": 1
+                  "u32": 0
                 },
                 {
-                  "u32": 1
+                  "u32": 50
                 }
               ]
             }
@@ -353,25 +344,16 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "propose_withdrawal"
+                "symbol": "set_quorum"
               }
             ],
             "data": {
               "vec": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 1000000
-                  }
-                },
-                {
-                  "string": "rent"
+                  "u32": 101
                 }
               ]
             }
@@ -392,12 +374,12 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "propose_withdrawal"
+                "symbol": "set_quorum"
               }
             ],
             "data": {
               "error": {
-                "contract": 5
+                "contract": 10
               }
             }
           }
@@ -418,7 +400,7 @@
               },
               {
                 "error": {
-                  "contract": 5
+                  "contract": 10
                 }
               }
             ],
@@ -443,7 +425,7 @@
               },
               {
                 "error": {
-                  "contract": 5
+                  "contract": 10
                 }
               }
             ],
@@ -453,24 +435,15 @@
                   "string": "contract try_call failed"
                 },
                 {
-                  "symbol": "propose_withdrawal"
+                  "symbol": "set_quorum"
                 },
                 {
                   "vec": [
                     {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                     },
                     {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 1000000
-                      }
-                    },
-                    {
-                      "string": "rent"
+                      "u32": 101
                     }
                   ]
                 }

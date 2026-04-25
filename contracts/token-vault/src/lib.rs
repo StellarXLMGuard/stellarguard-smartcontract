@@ -38,6 +38,8 @@ pub enum Error {
     NothingToClaim = 11,
     /// Signer already approved emergency unlock.
     AlreadyApprovedEmergency = 12,
+    /// Arithmetic overflow occurred.
+    Overflow = 13,
 }
 
 // ============================================================================
@@ -206,12 +208,12 @@ impl TokenVaultContract {
         owner.require_auth();
 
         // Get and increment lock counter
-        let lock_id: u64 = env
+        let current_lock_counter: u64 = env
             .storage()
             .instance()
             .get(&DataKey::LockCounter)
-            .unwrap_or(0)
-            + 1;
+            .unwrap_or(0);
+        let lock_id = current_lock_counter.checked_add(1).ok_or(Error::Overflow)?;
         env.storage()
             .instance()
             .set(&DataKey::LockCounter, &lock_id);
@@ -479,12 +481,14 @@ impl TokenVaultContract {
             return Err(Error::InvalidDuration);
         }
 
-        let vesting_id: u64 = env
+        let current_vesting_counter: u64 = env
             .storage()
             .instance()
             .get(&DataKey::VestingCounter)
-            .unwrap_or(0)
-            + 1;
+            .unwrap_or(0);
+        let vesting_id = current_vesting_counter
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
         env.storage()
             .instance()
             .set(&DataKey::VestingCounter, &vesting_id);
@@ -1230,5 +1234,46 @@ mod test {
         client.approve_emergency(&signer1, &lock_id);
         let result = client.try_approve_emergency(&signer1, &lock_id);
         assert_eq!(result, Err(Ok(Error::AlreadyApprovedEmergency)));
+    }
+
+    #[test]
+    fn test_lock_tokens_rejects_counter_overflow() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        client.initialize(&admin, &signers, &1);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::LockCounter, &u64::MAX);
+
+        let owner = Address::generate(&env);
+        let result = client.try_lock_tokens(&owner, &1_000_000, &3_600, &symbol_short!("safe"));
+        assert_eq!(result, Err(Ok(Error::Overflow)));
+    }
+
+    #[test]
+    fn test_create_vesting_rejects_counter_overflow() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        client.initialize(&admin, &signers, &1);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::VestingCounter, &u64::MAX);
+
+        let beneficiary = Address::generate(&env);
+        let result = client.try_create_vesting(
+            &admin,
+            &beneficiary,
+            &1_000_000,
+            &31_536_000,
+            &0,
+            &symbol_short!("team"),
+        );
+        assert_eq!(result, Err(Ok(Error::Overflow)));
     }
 }

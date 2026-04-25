@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, log, symbol_short, Address, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, log, symbol_short, Address, Env, String,
     Vec,
 };
 
@@ -109,9 +109,9 @@ pub struct Proposal {
     /// Unique identifier.
     pub id: u64,
     /// Title of the proposal.
-    pub title: Symbol,
+    pub title: String,
     /// Short description.
-    pub description: Symbol,
+    pub description: String,
     /// The type of action being proposed.
     pub action: ProposalAction,
     /// Address of the proposer.
@@ -225,8 +225,8 @@ impl GovernanceContract {
     pub fn create_proposal(
         env: Env,
         proposer: Address,
-        title: Symbol,
-        description: Symbol,
+        title: String,
+        description: String,
         action: ProposalAction,
         amount: i128,
         target: Address,
@@ -237,10 +237,10 @@ impl GovernanceContract {
         proposer.require_auth();
 
         // Validation checks
-        if title == Symbol::new(&env, "") {
+        if title == String::from_str(&env, "") {
             return Err(Error::InvalidProposal);
         }
-        if description == Symbol::new(&env, "") {
+        if description == String::from_str(&env, "") {
             return Err(Error::InvalidProposal);
         }
         if amount < 0 {
@@ -746,6 +746,10 @@ mod test {
         (env, admin, client)
     }
 
+    fn text(env: &Env, value: &str) -> String {
+        String::from_str(env, value)
+    }
+
     #[test]
     fn test_initialize() {
         let (env, admin, client) = setup_contract();
@@ -777,8 +781,8 @@ mod test {
         // Create a funding proposal
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("fund_dev"),
-            &symbol_short!("dev_work"),
+            &text(&env, "Fund development sprint"),
+            &text(&env, "Allocate budget for the next engineering sprint"),
             &ProposalAction::Funding,
             &500_000,
             &member1,
@@ -807,8 +811,8 @@ mod test {
         // Create a funding proposal
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("fund_dev"),
-            &symbol_short!("dev_work"),
+            &text(&env, "Fund development sprint"),
+            &text(&env, "Allocate budget for the next engineering sprint"),
             &ProposalAction::Funding,
             &500_000,
             &member1,
@@ -818,8 +822,11 @@ mod test {
         let proposal = client.get_proposal(&proposal_id);
         assert_eq!(proposal.id, 1);
         assert_eq!(proposal.proposer, member1);
-        assert_eq!(proposal.title, symbol_short!("fund_dev"));
-        assert_eq!(proposal.description, symbol_short!("dev_work"));
+        assert_eq!(proposal.title, text(&env, "Fund development sprint"));
+        assert_eq!(
+            proposal.description,
+            text(&env, "Allocate budget for the next engineering sprint")
+        );
         assert_eq!(proposal.action, ProposalAction::Funding);
         assert_eq!(proposal.amount, 500_000);
         assert_eq!(proposal.target, member1);
@@ -845,8 +852,8 @@ mod test {
 
         let result = client.try_create_proposal(
             &non_member,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &non_member,
@@ -865,8 +872,8 @@ mod test {
 
         let result = client.try_create_proposal(
             &member1,
-            &symbol_short!(""), // Empty title
-            &symbol_short!("test"),
+            &text(&env, ""), // Empty title
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -885,8 +892,8 @@ mod test {
 
         let result = client.try_create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!(""), // Empty description
+            &text(&env, "test"),
+            &text(&env, ""), // Empty description
             &ProposalAction::General,
             &0,
             &member1,
@@ -905,8 +912,8 @@ mod test {
 
         let result = client.try_create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::Funding,
             &-100, // Negative amount
             &member1,
@@ -926,24 +933,24 @@ mod test {
         // Create multiple proposals
         let proposal_id1 = client.create_proposal(
             &member1,
-            &symbol_short!("test1"),
-            &symbol_short!("test1"),
+            &text(&env, "test1"),
+            &text(&env, "test1"),
             &ProposalAction::General,
             &0,
             &member1,
         );
         let proposal_id2 = client.create_proposal(
             &member1,
-            &symbol_short!("test2"),
-            &symbol_short!("test2"),
+            &text(&env, "test2"),
+            &text(&env, "test2"),
             &ProposalAction::General,
             &0,
             &member1,
         );
         let proposal_id3 = client.create_proposal(
             &member1,
-            &symbol_short!("test3"),
-            &symbol_short!("test3"),
+            &text(&env, "test3"),
+            &text(&env, "test3"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -970,8 +977,8 @@ mod test {
         // Create proposal and check event
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("fund_dev"),
-            &symbol_short!("dev_work"),
+            &text(&env, "Fund development sprint"),
+            &text(&env, "Allocate budget for the next engineering sprint"),
             &ProposalAction::Funding,
             &500_000,
             &member1,
@@ -1014,8 +1021,8 @@ mod test {
         // Create proposal
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -1039,8 +1046,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -1066,8 +1073,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("add_mem"),
-            &symbol_short!("new_mem"),
+            &text(&env, "add_mem"),
+            &text(&env, "new_mem"),
             &ProposalAction::AddMember,
             &0,
             &new_member,
@@ -1103,8 +1110,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("rem_mem"),
-            &symbol_short!("rem"),
+            &text(&env, "rem_mem"),
+            &text(&env, "rem"),
             &ProposalAction::RemoveMember,
             &0,
             &member3,
@@ -1138,8 +1145,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -1168,8 +1175,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -1199,8 +1206,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -1226,8 +1233,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -1252,8 +1259,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -1279,8 +1286,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("policy"),
-            &symbol_short!("update"),
+            &text(&env, "policy"),
+            &text(&env, "update"),
             &ProposalAction::PolicyChange,
             &0,
             &member1,
@@ -1326,8 +1333,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("active"),
-            &symbol_short!("wait"),
+            &text(&env, "active"),
+            &text(&env, "wait"),
             &ProposalAction::General,
             &0,
             &member1,
@@ -1358,8 +1365,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("add_mem"),
-            &symbol_short!("expand"),
+            &text(&env, "add_mem"),
+            &text(&env, "expand DAO membership beyond symbol limits"),
             &ProposalAction::AddMember,
             &0,
             &new_member,
@@ -1451,8 +1458,8 @@ mod test {
 
         let proposal_id = client.create_proposal(
             &member1,
-            &symbol_short!("test"),
-            &symbol_short!("test"),
+            &text(&env, "test"),
+            &text(&env, "test"),
             &ProposalAction::General,
             &0,
             &member1,

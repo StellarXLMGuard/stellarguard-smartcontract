@@ -1684,4 +1684,62 @@ mod test {
         let result = client.try_set_threshold(&admin, &1);
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
+
+    // =========================================================================
+    // Negative Path Tests (TEST-3)
+    // =========================================================================
+
+    #[test]
+    fn test_reinitialize_returns_already_initialized() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        // Attempt to re-initialize
+        let result = client.try_initialize(&admin, &1, &signers, &asset);
+        assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+    }
+
+    #[test]
+    fn test_deposit_with_zero_amount_returns_invalid_amount() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        let depositor = Address::generate(&env);
+        mint_asset(&env, &asset, &depositor, 1_000_000);
+
+        let result = client.try_deposit(&depositor, &0);
+        assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+    }
+
+    #[test]
+    fn test_approve_on_executed_tx_returns_already_executed() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signer2 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 2, &signers);
+
+        // Deposit and propose
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "test"),
+        );
+
+        // Approve and execute
+        client.approve(&signer2, &tx_id);
+        client.execute(&signer1, &tx_id);
+
+        // Try to approve after execution
+        let result = client.try_approve(&signer1, &tx_id);
+        assert_eq!(result, Err(Ok(Error::AlreadyExecuted)));
+    }
 }

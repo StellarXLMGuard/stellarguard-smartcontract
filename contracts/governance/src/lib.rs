@@ -1558,4 +1558,38 @@ mod test {
         let all_members = client.get_members();
         assert_eq!(all_members.len(), 2);
     }
+
+    // =========================================================================
+    // Negative Path Tests (TEST-3)
+    // =========================================================================
+
+    #[test]
+    fn test_double_finalize_returns_voting_closed() {
+        let (env, admin, client) = setup_contract();
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone(), member2.clone()]);
+        client.initialize(&admin, &members, &50, &10);
+
+        let proposal_id = client.create_proposal(
+            &member1,
+            &text(&env, "test"),
+            &text(&env, "test"),
+            &ProposalAction::General,
+            &0,
+            &member1,
+        );
+
+        client.vote(&member1, &proposal_id, &true);
+        client.vote(&member2, &proposal_id, &true);
+        env.ledger().set_sequence_number(100);
+
+        // First finalize should succeed
+        let status = client.finalize(&member1, &proposal_id);
+        assert_eq!(status, ProposalStatus::Passed);
+
+        // Second finalize should fail
+        let result = client.try_finalize(&member1, &proposal_id);
+        assert_eq!(result, Err(Ok(Error::VotingClosed)));
+    }
 }

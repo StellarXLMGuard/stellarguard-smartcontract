@@ -1438,4 +1438,55 @@ mod test {
         let empty_page = client.get_vestings_by_beneficiary(&beneficiary, &second_vesting, &0);
         assert_eq!(empty_page.len(), 0);
     }
+
+    // =========================================================================
+    // Negative Path Tests (TEST-3)
+    // =========================================================================
+
+    #[test]
+    fn test_claim_before_cliff_returns_nothing_to_claim() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        client.initialize(&admin, &signers, &1);
+
+        let start_time = 1_000;
+        env.ledger().set_timestamp(start_time);
+
+        let beneficiary = Address::generate(&env);
+        let vesting_id = client.create_vesting(
+            &admin,
+            &beneficiary,
+            &1_000_000,
+            &120,
+            &30,
+            &symbol_short!("team"),
+        );
+
+        // Try to claim before cliff
+        env.ledger().set_timestamp(start_time + 29);
+        let result = client.try_claim_vested(&beneficiary, &vesting_id);
+        assert_eq!(result, Err(Ok(Error::NothingToClaim)));
+    }
+
+    #[test]
+    fn test_create_vesting_with_zero_duration_returns_invalid_duration() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        client.initialize(&admin, &signers, &1);
+
+        let beneficiary = Address::generate(&env);
+        let result = client.try_create_vesting(
+            &admin,
+            &beneficiary,
+            &1_000_000,
+            &0, // Zero duration
+            &0,
+            &symbol_short!("team"),
+        );
+        assert_eq!(result, Err(Ok(Error::InvalidDuration)));
+    }
 }

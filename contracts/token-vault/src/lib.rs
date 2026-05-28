@@ -439,9 +439,11 @@ impl TokenVaultContract {
             .instance()
             .set(&DataKey::TotalLocked, &new_total);
 
+        let owner = lock.owner.clone();
+
         env.events().publish(
             (symbol_short!("vault"), symbol_short!("emrg_ex")),
-            (lock_id, caller.clone(), amount),
+            (lock_id, caller.clone(), owner, amount),
         );
 
         Ok(amount)
@@ -1217,11 +1219,37 @@ mod test {
         let expected_data: Vec<Val> = vec![
             &env,
             lock_id.into_val(&env),
+            owner.clone().into_val(&env),
             owner.into_val(&env),
             900_000i128.into_val(&env),
         ];
         let actual_data: Vec<Val> = Vec::try_from_val(&env, &event.2).unwrap();
         assert_eq!(actual_data, expected_data);
+    }
+
+    #[test]
+    fn test_emergency_unlock_can_be_called_by_non_owner() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signer2 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+        client.initialize(&admin, &signers, &2);
+
+        let owner = Address::generate(&env);
+        let lock_id = client.lock_tokens(&owner, &500_000, &86400, &symbol_short!("team"));
+
+        client.approve_emergency(&signer1, &lock_id);
+        client.approve_emergency(&signer2, &lock_id);
+
+        // Any address can trigger emergency_unlock once threshold is met
+        let third_party = Address::generate(&env);
+        let unlocked = client.emergency_unlock(&third_party, &lock_id);
+        assert_eq!(unlocked, 500_000);
+
+        let lock = client.get_lock(&lock_id);
+        assert_eq!(lock.claimed, true);
+        assert_eq!(lock.owner, owner);
     }
 
     #[test]

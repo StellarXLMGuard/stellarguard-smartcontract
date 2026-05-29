@@ -644,7 +644,11 @@ impl TokenVaultContract {
 
         let mut current_id = start_after_id.checked_add(1).unwrap_or(u64::MAX);
         while current_id <= max_id && locks.len() < limit {
-            if let Some(lock) = env.storage().persistent().get::<DataKey, TokenLock>(&DataKey::Lock(current_id)) {
+            if let Some(lock) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, TokenLock>(&DataKey::Lock(current_id))
+            {
                 if lock.owner == owner {
                     locks.push_back(lock);
                 }
@@ -800,7 +804,7 @@ mod test {
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::testutils::Events as _;
     use soroban_sdk::testutils::Ledger as _;
-    use soroban_sdk::{vec, Env, IntoVal, TryFromVal, Val, Vec};
+    use soroban_sdk::{vec, BytesN, Env, IntoVal, TryFromVal, Val, Vec};
 
     fn setup_contract() -> (Env, Address, Address, TokenVaultContractClient<'static>) {
         let env = Env::default();
@@ -809,6 +813,10 @@ mod test {
         let client = TokenVaultContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         (env, admin, contract_id, client)
+    }
+
+    fn wasm_hash(env: &Env) -> BytesN<32> {
+        BytesN::from_array(env, &[0; 32])
     }
 
     #[test]
@@ -1393,7 +1401,8 @@ mod test {
         let other_owner = Address::generate(&env);
 
         client.lock_tokens(&owner, &100_000, &100, &symbol_short!("one"));
-        let second_owner_lock = client.lock_tokens(&other_owner, &200_000, &100, &symbol_short!("oth"));
+        let second_owner_lock =
+            client.lock_tokens(&other_owner, &200_000, &100, &symbol_short!("oth"));
         let third_owner_lock = client.lock_tokens(&owner, &300_000, &100, &symbol_short!("two"));
         let fourth_owner_lock = client.lock_tokens(&owner, &400_000, &100, &symbol_short!("tre"));
 
@@ -1516,5 +1525,19 @@ mod test {
             &symbol_short!("team"),
         );
         assert_eq!(result, Err(Ok(Error::InvalidDuration)));
+    }
+
+    #[test]
+    fn test_upgrade_rejects_non_admin() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        client.initialize(&admin, &signers, &1);
+
+        let outsider = Address::generate(&env);
+        let wasm_hash = wasm_hash(&env);
+        let result = client.try_upgrade(&outsider, &wasm_hash);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 }

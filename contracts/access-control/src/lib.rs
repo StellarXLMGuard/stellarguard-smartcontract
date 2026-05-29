@@ -643,7 +643,7 @@ impl AccessControlContract {
 mod test {
     use super::*;
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::Env;
+    use soroban_sdk::{BytesN, Env};
 
     fn setup_contract() -> (Env, Address, AccessControlContractClient<'static>) {
         let env = Env::default();
@@ -652,6 +652,10 @@ mod test {
         let client = AccessControlContractClient::new(&env, &contract_id);
         let owner = Address::generate(&env);
         (env, owner, client)
+    }
+
+    fn wasm_hash(env: &Env) -> BytesN<32> {
+        BytesN::from_array(env, &[0; 32])
     }
 
     #[test]
@@ -916,8 +920,14 @@ mod test {
 
         // After transfer: owner_count should be 1 (new owner), admin_count should be 1 (old owner)
         let summary_after = client.get_summary();
-        assert_eq!(summary_after.owner_count, 1, "owner_count should be 1 after transfer");
-        assert_eq!(summary_after.admin_count, 1, "admin_count should be 1 after transfer");
+        assert_eq!(
+            summary_after.owner_count, 1,
+            "owner_count should be 1 after transfer"
+        );
+        assert_eq!(
+            summary_after.admin_count, 1,
+            "admin_count should be 1 after transfer"
+        );
         assert_eq!(summary_after.total_members, 2, "total_members should be 2");
     }
 
@@ -946,5 +956,16 @@ mod test {
         assert_eq!(role_assignment.role, Role::Owner);
         assert_eq!(role_assignment.address, owner);
         assert_eq!(role_assignment.assigned_by, owner);
+    }
+
+    #[test]
+    fn test_upgrade_rejects_non_owner() {
+        let (env, owner, client) = setup_contract();
+        client.initialize(&owner);
+
+        let outsider = Address::generate(&env);
+        let wasm_hash = wasm_hash(&env);
+        let result = client.try_upgrade(&outsider, &wasm_hash);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 }

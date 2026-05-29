@@ -6,6 +6,7 @@ members = [
     "contracts/governance",
     "contracts/token-vault",
     "contracts/access-control",
+    "tests/integration",
 ]
 
 [profile.release]

@@ -1,0 +1,11 @@
+[package]
+name = "stellar-guard-integration-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+soroban-sdk = { version = "21.7.6", features = ["testutils"] }
+stellar-guard-access-control = { path = "../../contracts/access-control", features = ["testutils"] }
+stellar-guard-governance = { path = "../../contracts/governance", features = ["testutils"] }
+stellar-guard-token-vault = { path = "../../contracts/token-vault", features = ["testutils"] }
+stellar-guard-treasury = { path = "../../contracts/treasury", features = ["testutils"] }

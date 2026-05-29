@@ -1284,6 +1284,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellar-guard-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "stellar-guard-access-control",
+ "stellar-guard-governance",
+ "stellar-guard-token-vault",
+ "stellar-guard-treasury",
+]
+
+[[package]]
 name = "stellar-guard-token-vault"
 version = "0.1.0"
 dependencies = [

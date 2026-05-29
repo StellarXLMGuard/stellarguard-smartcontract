@@ -337,7 +337,11 @@ impl TreasuryContract {
         // Check sufficient *unreserved* balance — multiple pending proposals
         // must not be able to collectively over-commit the same funds.
         let balance: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
-        let reserved: i128 = env.storage().instance().get(&DataKey::Reserved).unwrap_or(0);
+        let reserved: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Reserved)
+            .unwrap_or(0);
         if balance - reserved < amount {
             return Err(Error::InsufficientFunds);
         }
@@ -529,7 +533,11 @@ impl TreasuryContract {
             .set(&DataKey::Balance, &new_balance);
 
         // Release the reservation that was placed at proposal time.
-        let reserved: i128 = env.storage().instance().get(&DataKey::Reserved).unwrap_or(0);
+        let reserved: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Reserved)
+            .unwrap_or(0);
         env.storage()
             .instance()
             .set(&DataKey::Reserved, &(reserved - transaction.amount));
@@ -1028,9 +1036,15 @@ mod test {
         );
 
         let events = env.events().all();
-        assert_eq!(events.len(), 5);
+        let mut treasury_events = Vec::new(&env);
+        for event in events.iter() {
+            if event.0 == contract_id {
+                treasury_events.push_back(event);
+            }
+        }
+        assert_eq!(treasury_events.len(), 5);
 
-        let init_event = events.get(0).unwrap();
+        let init_event = treasury_events.get(0).unwrap();
         assert_eq!(init_event.0, contract_id);
         assert_eq!(
             init_event.1,
@@ -1041,7 +1055,7 @@ mod test {
             ]
         );
 
-        let deposit_event = events.get(1).unwrap();
+        let deposit_event = treasury_events.get(1).unwrap();
         assert_eq!(deposit_event.0, contract_id);
         assert_eq!(
             deposit_event.1,
@@ -1052,7 +1066,7 @@ mod test {
             ]
         );
 
-        let propose_event = events.get(2).unwrap();
+        let propose_event = treasury_events.get(2).unwrap();
         assert_eq!(propose_event.0, contract_id);
         assert_eq!(
             propose_event.1,
@@ -1063,7 +1077,7 @@ mod test {
             ]
         );
 
-        let approve_event = events.get(3).unwrap();
+        let approve_event = treasury_events.get(3).unwrap();
         assert_eq!(approve_event.0, contract_id);
         assert_eq!(
             approve_event.1,
@@ -1074,7 +1088,7 @@ mod test {
             ]
         );
 
-        let execute_event = events.get(events.len() - 1).unwrap();
+        let execute_event = treasury_events.get(4).unwrap();
         let actual_data: Vec<Val> = Vec::try_from_val(&env, &execute_event.2).unwrap();
         let expected_data: Vec<Val> = vec![
             &env,

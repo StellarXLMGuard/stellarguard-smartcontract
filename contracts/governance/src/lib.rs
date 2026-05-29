@@ -350,11 +350,14 @@ impl GovernanceContract {
 
         // Record vote
         if vote_for {
-            proposal.votes_for += 1;
+            proposal.votes_for = proposal.votes_for.checked_add(1).ok_or(Error::Overflow)?;
         } else {
-            proposal.votes_against += 1;
+            proposal.votes_against = proposal
+                .votes_against
+                .checked_add(1)
+                .ok_or(Error::Overflow)?;
         }
-        proposal.total_votes += 1;
+        proposal.total_votes = proposal.total_votes.checked_add(1).ok_or(Error::Overflow)?;
 
         // Save vote record (prevents double voting)
         env.storage().persistent().set(&vote_key, &vote_for);
@@ -737,7 +740,7 @@ mod test {
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::testutils::Events as _;
     use soroban_sdk::testutils::Ledger as _;
-    use soroban_sdk::{vec, Env, IntoVal, TryFromVal, Val};
+    use soroban_sdk::{vec, BytesN, Env, IntoVal, TryFromVal, Val};
 
     fn setup_contract() -> (Env, Address, GovernanceContractClient<'static>) {
         let env = Env::default();
@@ -750,6 +753,10 @@ mod test {
 
     fn text(env: &Env, value: &str) -> String {
         String::from_str(env, value)
+    }
+
+    fn wasm_hash(env: &Env) -> BytesN<32> {
+        BytesN::from_array(env, &[0; 32])
     }
 
     #[test]
@@ -1474,6 +1481,39 @@ mod test {
     }
 
     #[test]
+    fn test_vote_counter_overflow_returns_overflow() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, GovernanceContract);
+        let client = GovernanceContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone(), member2.clone()]);
+        client.initialize(&admin, &members, &50, &10);
+
+        let proposal_id = client.create_proposal(
+            &member1,
+            &text(&env, "Overflow"),
+            &text(&env, "Force vote counter overflow"),
+            &ProposalAction::General,
+            &0,
+            &member1,
+        );
+
+        let mut proposal = client.get_proposal(&proposal_id);
+        proposal.total_votes = u32::MAX;
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Proposal(proposal_id), &proposal);
+        });
+
+        let result = client.try_vote(&member2, &proposal_id, &true);
+        assert_eq!(result, Err(Ok(Error::Overflow)));
+    }
+
+    #[test]
     fn test_transfer_admin() {
         let (env, admin, client) = setup_contract();
         client.initialize(&admin, &Vec::new(&env), &50, &10);
@@ -1591,5 +1631,16 @@ mod test {
         // Second finalize should fail
         let result = client.try_finalize(&member1, &proposal_id);
         assert_eq!(result, Err(Ok(Error::VotingClosed)));
+    }
+
+    #[test]
+    fn test_upgrade_rejects_non_admin() {
+        let (env, admin, client) = setup_contract();
+        client.initialize(&admin, &Vec::new(&env), &50, &10);
+
+        let outsider = Address::generate(&env);
+        let wasm_hash = wasm_hash(&env);
+        let result = client.try_upgrade(&outsider, &wasm_hash);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 }

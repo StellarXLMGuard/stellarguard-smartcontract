@@ -39,6 +39,8 @@ pub enum Error {
     NotASigner = 11,
     /// Cannot remove signer — would breach threshold.
     ThresholdBreach = 12,
+    /// Transaction has been canceled.
+    Canceled = 13,
 }
 
 // ============================================================================
@@ -87,6 +89,8 @@ pub struct Transaction {
     pub approvals: Vec<Address>,
     /// Whether the transaction has been executed.
     pub executed: bool,
+    /// Whether the transaction has been canceled.
+    pub canceled: bool,
     /// Timestamp when the transaction was proposed.
     pub created_at: u64,
     /// Address that proposed the transaction.
@@ -372,6 +376,7 @@ impl TreasuryContract {
             memo: memo.clone(),
             approvals,
             executed: false,
+            canceled: false,
             created_at: env.ledger().timestamp(),
             proposer: proposer.clone(),
         };
@@ -432,6 +437,10 @@ impl TreasuryContract {
 
         if transaction.executed {
             return Err(Error::AlreadyExecuted);
+        }
+
+        if transaction.canceled {
+            return Err(Error::Canceled);
         }
 
         // Check if already approved by this signer
@@ -497,6 +506,10 @@ impl TreasuryContract {
 
         if transaction.executed {
             return Err(Error::AlreadyExecuted);
+        }
+
+        if transaction.canceled {
+            return Err(Error::Canceled);
         }
 
         // Check threshold
@@ -566,6 +579,80 @@ impl TreasuryContract {
             tx_id,
             transaction.amount,
             transaction.to
+        );
+        Ok(())
+    }
+
+    /// Cancel a pending withdrawal transaction.
+    /// Only the proposer or admin can cancel a transaction that has not been executed.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment.
+    /// * `caller` - The address requesting cancellation (proposer or admin).
+    /// * `tx_id` - The ID of the transaction to cancel.
+    ///
+    /// # Returns
+    /// Ok(()) on successful cancellation.
+    ///
+    /// # Errors
+    /// * `Error::NotInitialized` - If the contract is not initialized.
+    /// * `Error::TransactionNotFound` - If the transaction doesn't exist.
+    /// * `Error::AlreadyExecuted` - If the transaction is already executed.
+    /// * `Error::Unauthorized` - If caller is not the proposer or admin.
+    /// * `Error::Canceled` - If transaction is already canceled.
+    pub fn cancel_transaction(env: Env, caller: Address, tx_id: u64) -> Result<(), Error> {
+        Self::require_initialized(&env)?;
+
+        caller.require_auth();
+
+        let mut transaction: Transaction = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Transaction(tx_id))
+            .ok_or(Error::TransactionNotFound)?;
+
+        if transaction.executed {
+            return Err(Error::AlreadyExecuted);
+        }
+
+        if transaction.canceled {
+            return Err(Error::Canceled);
+        }
+
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+
+        if caller != transaction.proposer && caller != admin {
+            return Err(Error::Unauthorized);
+        }
+
+        transaction.canceled = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Transaction(tx_id), &transaction);
+
+        let reserved: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Reserved)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::Reserved, &(reserved - transaction.amount));
+
+        env.events().publish(
+            (symbol_short!("treasury"), symbol_short!("cancel")),
+            (tx_id, caller.clone()),
+        );
+
+        log!(
+            &env,
+            "Transaction #{} canceled by {:?}",
+            tx_id,
+            caller
         );
         Ok(())
     }
@@ -1755,5 +1842,181 @@ mod test {
         // Try to approve after execution
         let result = client.try_approve(&signer1, &tx_id);
         assert_eq!(result, Err(Ok(Error::AlreadyExecuted)));
+    }
+
+    #[test]
+    fn test_cancel_by_proposer() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "test withdrawal"),
+        );
+
+        client.cancel_transaction(&signer1, &tx_id);
+
+        let tx = client.get_transaction(&tx_id);
+        assert!(tx.canceled);
+        assert!(!tx.executed);
+    }
+
+    #[test]
+    fn test_cancel_by_admin() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "test withdrawal"),
+        );
+
+        client.cancel_transaction(&admin, &tx_id);
+
+        let tx = client.get_transaction(&tx_id);
+        assert!(tx.canceled);
+    }
+
+    #[test]
+    fn test_cancel_unauthorized() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let other = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "test withdrawal"),
+        );
+
+        let result = client.try_cancel_transaction(&other, &tx_id);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
+
+    #[test]
+    fn test_cancel_executed_transaction() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "test withdrawal"),
+        );
+
+        client.execute(&signer1, &tx_id);
+
+        let result = client.try_cancel_transaction(&signer1, &tx_id);
+        assert_eq!(result, Err(Ok(Error::AlreadyExecuted)));
+    }
+
+    #[test]
+    fn test_cancel_already_canceled() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "test withdrawal"),
+        );
+
+        client.cancel_transaction(&signer1, &tx_id);
+
+        let result = client.try_cancel_transaction(&signer1, &tx_id);
+        assert_eq!(result, Err(Ok(Error::Canceled)));
+    }
+
+    #[test]
+    fn test_cancel_unreserves_funds() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        mint_asset(&env, &asset, &signer1, 10_000_000);
+        client.deposit(&signer1, &10_000_000);
+
+        let recipient = Address::generate(&env);
+        let tx_id1 = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &3_000_000,
+            &String::from_str(&env, "first proposal"),
+        );
+
+        let result = client.try_propose_withdrawal(
+            &signer1,
+            &recipient,
+            &8_000_000,
+            &String::from_str(&env, "second proposal"),
+        );
+        assert_eq!(result, Err(Ok(Error::InsufficientFunds)));
+
+        client.cancel_transaction(&signer1, &tx_id1);
+
+        let tx_id2 = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &8_000_000,
+            &String::from_str(&env, "second proposal after cancel"),
+        );
+        assert_eq!(tx_id2, 2);
+    }
+
+    #[test]
+    fn test_approve_canceled_transaction() {
+        let (env, admin, _contract_id, client) = setup_contract();
+        let signer1 = Address::generate(&env);
+        let signer2 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 2, &signers);
+
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "test withdrawal"),
+        );
+
+        client.cancel_transaction(&signer1, &tx_id);
+
+        let result = client.try_approve(&signer2, &tx_id);
+        assert_eq!(result, Err(Ok(Error::Canceled)));
     }
 }

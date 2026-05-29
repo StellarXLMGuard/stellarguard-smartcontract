@@ -224,4 +224,192 @@ mod workflows {
             symbol_short!("emrg_ex").into_val(env),
         );
     }
+
+    #[test]
+    fn edge_case_single_signer_treasury() {
+        let contracts = setup();
+        let env = &contracts.env;
+
+        let admin = Address::generate(env);
+        let signer = Address::generate(env);
+        let token_admin = Address::generate(env);
+        let asset = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        StellarAssetClient::new(env, &asset).mint(&signer, &1_000_000);
+        let recipient = Address::generate(env);
+        let signers = Vec::from_array(env, [signer.clone()]);
+
+        contracts.treasury.initialize(&admin, &1, &signers, &asset);
+        contracts.treasury.deposit(&signer, &1_000_000);
+
+        let tx_id = contracts.treasury.propose_withdrawal(
+            &signer,
+            &recipient,
+            &500_000,
+            &text(env, "single signer withdrawal"),
+        );
+
+        contracts.treasury.execute(&signer, &tx_id);
+        assert!(contracts.treasury.get_transaction(&tx_id).executed);
+        assert_eq!(contracts.treasury.get_balance(), 500_000);
+    }
+
+    #[test]
+    fn edge_case_governance_100_percent_quorum() {
+        let contracts = setup();
+        let env = &contracts.env;
+
+        let owner = Address::generate(env);
+        let member1 = Address::generate(env);
+        let member2 = Address::generate(env);
+        let members = Vec::from_array(env, [member1.clone(), member2.clone()]);
+
+        contracts.governance.initialize(&owner, &members, &100, &100);
+
+        let proposal_id = contracts.governance.create_proposal(
+            &member1,
+            &text(env, "100% Quorum Proposal"),
+            &text(env, "All members must vote"),
+            &ProposalAction::General,
+            &0,
+            &Address::generate(env),
+        );
+
+        contracts.governance.vote(&member1, &proposal_id, &true);
+        contracts.governance.vote(&member2, &proposal_id, &true);
+
+        env.ledger().set_timestamp(200);
+        contracts.governance.finalize(&member1, &proposal_id);
+
+        let proposal = contracts.governance.get_proposal(&proposal_id);
+        assert_eq!(proposal.status, ProposalStatus::Passed);
+    }
+
+    #[test]
+    fn edge_case_vault_zero_cliff_period() {
+        let contracts = setup();
+        let env = &contracts.env;
+
+        let admin = Address::generate(env);
+        let beneficiary = Address::generate(env);
+        let token_admin = Address::generate(env);
+        let asset = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        StellarAssetClient::new(env, &asset).mint(&admin, &10_000_000);
+
+        let signer1 = Address::generate(env);
+        let signer2 = Address::generate(env);
+        let signers = Vec::from_array(env, [signer1, signer2]);
+
+        contracts.vault.initialize(&admin, &signers, &2, &asset);
+
+        let vesting_id = contracts.vault.create_vesting(
+            &admin,
+            &beneficiary,
+            &10_000_000,
+            &365 * 86400,
+            &0,
+            &text(env, "zero cliff vesting"),
+        );
+
+        env.ledger().set_timestamp(1);
+        let claimable = contracts.vault.get_vesting(&vesting_id).claimable_amount;
+        assert!(claimable > 0);
+    }
+
+    #[test]
+    fn edge_case_vesting_duration_equals_cliff() {
+        let contracts = setup();
+        let env = &contracts.env;
+
+        let admin = Address::generate(env);
+        let beneficiary = Address::generate(env);
+        let token_admin = Address::generate(env);
+        let asset = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        StellarAssetClient::new(env, &asset).mint(&admin, &10_000_000);
+
+        let signer1 = Address::generate(env);
+        let signer2 = Address::generate(env);
+        let signers = Vec::from_array(env, [signer1, signer2]);
+
+        contracts.vault.initialize(&admin, &signers, &2, &asset);
+
+        let duration = 365 * 86400;
+        let vesting_id = contracts.vault.create_vesting(
+            &admin,
+            &beneficiary,
+            &10_000_000,
+            &duration,
+            &duration,
+            &text(env, "duration equals cliff"),
+        );
+
+        env.ledger().set_timestamp(duration + 1);
+        let claimable = contracts.vault.get_vesting(&vesting_id).claimable_amount;
+        assert_eq!(claimable, 10_000_000);
+    }
+
+    #[test]
+    fn edge_case_treasury_balance_exact_withdrawal_amount() {
+        let contracts = setup();
+        let env = &contracts.env;
+
+        let admin = Address::generate(env);
+        let signer = Address::generate(env);
+        let token_admin = Address::generate(env);
+        let asset = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        StellarAssetClient::new(env, &asset).mint(&signer, &5_000_000);
+        let recipient = Address::generate(env);
+        let signers = Vec::from_array(env, [signer.clone()]);
+
+        contracts.treasury.initialize(&admin, &1, &signers, &asset);
+        contracts.treasury.deposit(&signer, &5_000_000);
+
+        let tx_id = contracts.treasury.propose_withdrawal(
+            &signer,
+            &recipient,
+            &5_000_000,
+            &text(env, "withdraw entire balance"),
+        );
+
+        contracts.treasury.execute(&signer, &tx_id);
+        assert_eq!(contracts.treasury.get_balance(), 0);
+    }
+
+    #[test]
+    fn edge_case_governance_proposal_at_exact_voting_deadline() {
+        let contracts = setup();
+        let env = &contracts.env;
+
+        let owner = Address::generate(env);
+        let member1 = Address::generate(env);
+        let member2 = Address::generate(env);
+        let members = Vec::from_array(env, [member1.clone(), member2.clone()]);
+
+        contracts.governance.initialize(&owner, &members, &50, &100);
+
+        let proposal_id = contracts.governance.create_proposal(
+            &member1,
+            &text(env, "Deadline Test"),
+            &text(env, "Vote at exact deadline"),
+            &ProposalAction::General,
+            &0,
+            &Address::generate(env),
+        );
+
+        contracts.governance.vote(&member1, &proposal_id, &true);
+
+        env.ledger().set_timestamp(100);
+        contracts.governance.vote(&member2, &proposal_id, &true);
+
+        contracts.governance.finalize(&member1, &proposal_id);
+        let proposal = contracts.governance.get_proposal(&proposal_id);
+        assert_eq!(proposal.status, ProposalStatus::Passed);
+    }
 }

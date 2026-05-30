@@ -610,6 +610,33 @@ impl GovernanceContract {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Return a slice of members starting at `start`, up to `limit` entries.
+    pub fn get_members_paginated(env: Env, start: u32, limit: u32) -> Vec<Address> {
+        let members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Members)
+            .unwrap_or(Vec::new(&env));
+
+        let mut page = Vec::new(&env);
+        if limit == 0 {
+            return page;
+        }
+
+        let total = members.len();
+        let mut index = start;
+        while index < total && page.len() < limit {
+            page.push_back(members.get(index).unwrap());
+            index += 1;
+        }
+        page
+    }
+
+    /// Return the current number of DAO members.
+    pub fn get_member_count(env: Env) -> u32 {
+        Self::get_members(env).len()
+    }
+
     /// Check if an address has voted on a proposal.
     pub fn has_voted(env: Env, proposal_id: u64, voter: Address) -> bool {
         env.storage()
@@ -1642,5 +1669,96 @@ mod test {
         let wasm_hash = wasm_hash(&env);
         let result = client.try_upgrade(&outsider, &wasm_hash);
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
+
+    #[test]
+    fn test_get_members_paginated_two_pages() {
+        let (env, admin, client) = setup_contract();
+
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let member3 = Address::generate(&env);
+        let member4 = Address::generate(&env);
+        let member5 = Address::generate(&env);
+        let members = Vec::from_array(
+            &env,
+            [
+                member1.clone(),
+                member2.clone(),
+                member3.clone(),
+                member4.clone(),
+                member5.clone(),
+            ],
+        );
+
+        client.initialize(&admin, &members, &50, &10);
+
+        let page1 = client.get_members_paginated(&0, &2);
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1.get(0).unwrap(), member1);
+        assert_eq!(page1.get(1).unwrap(), member2);
+
+        let page2 = client.get_members_paginated(&2, &2);
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2.get(0).unwrap(), member3);
+        assert_eq!(page2.get(1).unwrap(), member4);
+
+        let page3 = client.get_members_paginated(&4, &2);
+        assert_eq!(page3.len(), 1);
+        assert_eq!(page3.get(0).unwrap(), member5);
+    }
+
+    #[test]
+    fn test_get_members_paginated_empty_and_beyond_end() {
+        let (env, admin, client) = setup_contract();
+
+        let member1 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone()]);
+        client.initialize(&admin, &members, &50, &10);
+
+        assert_eq!(client.get_members_paginated(&0, &0).len(), 0);
+        assert_eq!(client.get_members_paginated(&10, &5).len(), 0);
+    }
+
+    #[test]
+    fn test_get_member_count_tracks_member_changes() {
+        let (env, admin, client) = setup_contract();
+
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone(), member2.clone()]);
+        client.initialize(&admin, &members, &50, &10);
+        assert_eq!(client.get_member_count(), 2);
+
+        let new_member = Address::generate(&env);
+        let add_id = client.create_proposal(
+            &member1,
+            &text(&env, "add"),
+            &text(&env, "add member"),
+            &ProposalAction::AddMember,
+            &0,
+            &new_member,
+        );
+        client.vote(&member1, &add_id, &true);
+        client.vote(&member2, &add_id, &true);
+        env.ledger().set_sequence_number(100);
+        client.finalize(&member1, &add_id);
+        client.execute_proposal(&admin, &add_id);
+        assert_eq!(client.get_member_count(), 3);
+
+        let remove_id = client.create_proposal(
+            &member1,
+            &text(&env, "remove"),
+            &text(&env, "remove member"),
+            &ProposalAction::RemoveMember,
+            &0,
+            &new_member,
+        );
+        client.vote(&member1, &remove_id, &true);
+        client.vote(&member2, &remove_id, &true);
+        env.ledger().set_sequence_number(200);
+        client.finalize(&member1, &remove_id);
+        client.execute_proposal(&admin, &remove_id);
+        assert_eq!(client.get_member_count(), 2);
     }
 }

@@ -350,6 +350,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "canceled"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "created_at"
                       },
                       "val": {
@@ -362,6 +370,14 @@
                       },
                       "val": {
                         "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "executed_at"
+                      },
+                      "val": {
+                        "u64": 0
                       }
                     },
                     {
@@ -2323,6 +2339,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "canceled"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "created_at"
                   },
                   "val": {
@@ -2335,6 +2359,14 @@
                   },
                   "val": {
                     "bool": true
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "executed_at"
+                  },
+                  "val": {
+                    "u64": 0
                   }
                 },
                 {

@@ -93,9 +93,14 @@ pub struct Transaction {
     pub canceled: bool,
     /// Timestamp when the transaction was proposed.
     pub created_at: u64,
+    /// Ledger timestamp when the transaction was executed (`None` while pending).
+    pub executed_at: Option<u64>,
     /// Address that proposed the transaction.
     pub proposer: Address,
 }
+
+/// Maximum UTF-8 byte length for withdrawal memos (Stellar text memo limit).
+pub const MEMO_MAX_BYTES: u32 = 28;
 
 /// Treasury configuration data.
 #[contracttype]
@@ -338,6 +343,8 @@ impl TreasuryContract {
             return Err(Error::InvalidAmount);
         }
 
+        Self::validate_memo(&memo)?;
+
         // Check sufficient *unreserved* balance — multiple pending proposals
         // must not be able to collectively over-commit the same funds.
         let balance: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
@@ -378,6 +385,7 @@ impl TreasuryContract {
             executed: false,
             canceled: false,
             created_at: env.ledger().timestamp(),
+            executed_at: None,
             proposer: proposer.clone(),
         };
 
@@ -557,6 +565,7 @@ impl TreasuryContract {
 
         // Mark as executed
         transaction.executed = true;
+        transaction.executed_at = Some(env.ledger().timestamp());
         env.storage()
             .persistent()
             .set(&DataKey::Transaction(tx_id), &transaction);
@@ -895,6 +904,14 @@ impl TreasuryContract {
     // Internal Helpers
     // ========================================================================
 
+    fn validate_memo(memo: &String) -> Result<(), Error> {
+        let len = memo.len();
+        if len == 0 || len > MEMO_MAX_BYTES {
+            return Err(Error::InvalidAmount);
+        }
+        Ok(())
+    }
+
     fn require_initialized(env: &Env) -> Result<(), Error> {
         if !env.storage().instance().has(&DataKey::Initialized) {
             return Err(Error::NotInitialized);
@@ -1082,6 +1099,7 @@ mod test {
         // Check transaction marked as executed
         let tx = client.get_transaction(&tx_id);
         assert_eq!(tx.executed, true);
+        assert!(tx.executed_at.is_some());
     }
 
     #[test]
@@ -1115,6 +1133,7 @@ mod test {
 
         let transaction = client.get_transaction(&tx_id);
         assert_eq!(transaction.executed, true);
+        assert!(transaction.executed_at.is_some());
         assert_eq!(transaction.amount, 3_000_000);
         assert_eq!(transaction.to, recipient);
         assert_eq!(
@@ -1243,6 +1262,7 @@ mod test {
         assert_eq!(tx.approvals.len(), 1);
         assert_eq!(tx.approvals.get(0).unwrap(), signer1);
         assert_eq!(tx.executed, false);
+        assert_eq!(tx.executed_at, None);
     }
 
     #[test]
@@ -2018,5 +2038,89 @@ mod test {
 
         let result = client.try_approve(&signer2, &tx_id);
         assert_eq!(result, Err(Ok(Error::Canceled)));
+    }
+
+    #[test]
+    fn test_executed_at_set_only_after_execute() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signer2 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 2, &signers);
+
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "ops"),
+        );
+
+        let pending = client.get_transaction(&tx_id);
+        assert_eq!(pending.executed_at, None);
+
+        client.approve(&signer2, &tx_id);
+        client.execute(&signer1, &tx_id);
+
+        let executed = client.get_transaction(&tx_id);
+        assert!(executed.executed_at.is_some());
+    }
+
+    #[test]
+    fn test_propose_rejects_empty_memo() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+        mint_asset(&env, &asset, &signer, 5_000_000);
+        client.deposit(&signer, &5_000_000);
+
+        let recipient = Address::generate(&env);
+        let result = client.try_propose_withdrawal(
+            &signer,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, ""),
+        );
+        assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+    }
+
+    #[test]
+    fn test_propose_rejects_long_memo() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+        mint_asset(&env, &asset, &signer, 5_000_000);
+        client.deposit(&signer, &5_000_000);
+
+        let recipient = Address::generate(&env);
+        let long_memo = String::from_str(&env, "abcdefghijklmnopqrstuvwxyz123");
+        let result = client.try_propose_withdrawal(&signer, &recipient, &1_000_000, &long_memo);
+        assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+    }
+
+    #[test]
+    fn test_propose_accepts_memo_at_byte_limit() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+        mint_asset(&env, &asset, &signer, 5_000_000);
+        client.deposit(&signer, &5_000_000);
+
+        let recipient = Address::generate(&env);
+        let memo = String::from_str(&env, "abcdefghijklmnopqrstuvwxyz12");
+        let tx_id = client.propose_withdrawal(&signer, &recipient, &1_000_000, &memo);
+
+        let tx = client.get_transaction(&tx_id);
+        assert_eq!(tx.memo, memo);
     }
 }

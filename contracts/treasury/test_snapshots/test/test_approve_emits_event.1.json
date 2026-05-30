@@ -322,6 +322,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "canceled"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "created_at"
                       },
                       "val": {
@@ -335,6 +343,12 @@
                       "val": {
                         "bool": false
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "executed_at"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {

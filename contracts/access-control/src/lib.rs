@@ -65,6 +65,8 @@ pub enum DataKey {
     AllMembers,
     /// Total number of each role type.
     RoleCount(u32),
+    /// List of addresses for a specific role.
+    RoleMembers(u32),
 }
 
 /// Role assignment record.
@@ -150,6 +152,12 @@ impl AccessControlContract {
             .instance()
             .set(&DataKey::RoleCount(Role::Viewer as u32), &0_u32);
 
+        // Initialize role member lists
+        env.storage().instance().set(&DataKey::RoleMembers(Role::Owner as u32), &members);
+        env.storage().instance().set(&DataKey::RoleMembers(Role::Admin as u32), &Vec::<Address>::new(&env));
+        env.storage().instance().set(&DataKey::RoleMembers(Role::Member as u32), &Vec::<Address>::new(&env));
+        env.storage().instance().set(&DataKey::RoleMembers(Role::Viewer as u32), &Vec::<Address>::new(&env));
+
         env.events()
             .publish((symbol_short!("acl"), symbol_short!("init")), owner.clone());
 
@@ -229,6 +237,23 @@ impl AccessControlContract {
             env.storage()
                 .instance()
                 .set(&DataKey::RoleCount(old_role_val), &old_count);
+
+            // Remove from old role list
+            let mut old_members: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::RoleMembers(old_role_val))
+                .unwrap_or(Vec::new(&env));
+            let mut new_old_members = Vec::new(&env);
+            for i in 0..old_members.len() {
+                let m = old_members.get(i).unwrap();
+                if m != target {
+                    new_old_members.push_back(m);
+                }
+            }
+            env.storage()
+                .instance()
+                .set(&DataKey::RoleMembers(old_role_val), &new_old_members);
         } else {
             // New member — add to the list
             let mut members: Vec<Address> = env
@@ -257,6 +282,17 @@ impl AccessControlContract {
         env.storage()
             .instance()
             .set(&DataKey::RoleCount(role_val), &count);
+
+        // Update role member list
+        let mut role_members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::RoleMembers(role_val))
+            .unwrap_or(Vec::new(&env));
+        role_members.push_back(target.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::RoleMembers(role_val), &role_members);
 
         env.events().publish(
             (symbol_short!("acl"), symbol_short!("assign")),
@@ -310,6 +346,23 @@ impl AccessControlContract {
         env.storage()
             .instance()
             .set(&DataKey::RoleCount(role_val), &count);
+
+        // Remove from role member list
+        let mut role_members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::RoleMembers(role_val))
+            .unwrap_or(Vec::new(&env));
+        let mut new_role_members = Vec::new(&env);
+        for i in 0..role_members.len() {
+            let m = role_members.get(i).unwrap();
+            if m != target {
+                new_role_members.push_back(m);
+            }
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::RoleMembers(role_val), &new_role_members);
 
         // Remove role assignment
         env.storage()
@@ -399,6 +452,14 @@ impl AccessControlContract {
         env.storage()
             .instance()
             .get(&DataKey::AllMembers)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Get all members with a specific role.
+    pub fn get_members_by_role(env: Env, role: Role) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::RoleMembers(role as u32))
             .unwrap_or(Vec::new(&env))
     }
 
@@ -582,6 +643,65 @@ impl AccessControlContract {
         env.storage()
             .instance()
             .set(&DataKey::RoleCount(Role::Admin as u32), &admin_count);
+
+        // Update role member lists for ownership transfer
+        // 1. Remove new_owner from their old role list if they had one
+        if let Some(old_role) = old_new_owner_role {
+            let mut old_role_members: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::RoleMembers(old_role as u32))
+                .unwrap_or(Vec::new(&env));
+            let mut new_old_role_members = Vec::new(&env);
+            for i in 0..old_role_members.len() {
+                let m = old_role_members.get(i).unwrap();
+                if m != new_owner {
+                    new_old_role_members.push_back(m);
+                }
+            }
+            env.storage()
+                .instance()
+                .set(&DataKey::RoleMembers(old_role as u32), &new_old_role_members);
+        }
+
+        // 2. Add new_owner to Owner role list
+        let mut owner_members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::RoleMembers(Role::Owner as u32))
+            .unwrap_or(Vec::new(&env));
+        owner_members.push_back(new_owner.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::RoleMembers(Role::Owner as u32), &owner_members);
+
+        // 3. Remove current_owner from Owner role list
+        let mut owner_members_after: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::RoleMembers(Role::Owner as u32))
+            .unwrap_or(Vec::new(&env));
+        let mut new_owner_members = Vec::new(&env);
+        for i in 0..owner_members_after.len() {
+            let m = owner_members_after.get(i).unwrap();
+            if m != current_owner {
+                new_owner_members.push_back(m);
+            }
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::RoleMembers(Role::Owner as u32), &new_owner_members);
+
+        // 4. Add current_owner (now Admin) to Admin role list
+        let mut admin_members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::RoleMembers(Role::Admin as u32))
+            .unwrap_or(Vec::new(&env));
+        admin_members.push_back(current_owner.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::RoleMembers(Role::Admin as u32), &admin_members);
 
         env.events().publish(
             (symbol_short!("acl"), symbol_short!("owner")),
@@ -798,6 +918,88 @@ mod test {
         client.assign_role(&admin, &viewer, &Role::Viewer);
 
         assert_eq!(client.has_permission(&owner, &Role::Owner), true);
+    }
+
+    #[test]
+    fn test_get_members_by_role() {
+        let (env, owner, client) = setup_contract();
+
+        client.initialize(&owner);
+
+        let admin1 = Address::generate(&env);
+        let admin2 = Address::generate(&env);
+        let member = Address::generate(&env);
+        let viewer = Address::generate(&env);
+
+        client.assign_role(&owner, &admin1, &Role::Admin);
+        client.assign_role(&owner, &admin2, &Role::Admin);
+        client.assign_role(&owner, &member, &Role::Member);
+        client.assign_role(&admin1, &viewer, &Role::Viewer);
+
+        // Check Owner
+        let owners = client.get_members_by_role(&Role::Owner);
+        assert_eq!(owners.len(), 1);
+        assert_eq!(owners.get(0).unwrap(), owner);
+
+        // Check Admins
+        let admins = client.get_members_by_role(&Role::Admin);
+        assert_eq!(admins.len(), 2);
+        assert!(admins.contains(&admin1));
+        assert!(admins.contains(&admin2));
+
+        // Check Members
+        let members = client.get_members_by_role(&Role::Member);
+        assert_eq!(members.len(), 1);
+        assert_eq!(members.get(0).unwrap(), member);
+
+        // Check Viewers
+        let viewers = client.get_members_by_role(&Role::Viewer);
+        assert_eq!(viewers.len(), 1);
+        assert_eq!(viewers.get(0).unwrap(), viewer);
+
+        // Test reassignment: Promote member to admin
+        client.assign_role(&owner, &member, &Role::Admin);
+        
+        let admins_after = client.get_members_by_role(&Role::Admin);
+        assert_eq!(admins_after.len(), 3);
+        assert!(admins_after.contains(&member));
+
+        let members_after = client.get_members_by_role(&Role::Member);
+        assert_eq!(members_after.len(), 0);
+
+        // Test revocation
+        client.revoke_role(&owner, &admin2);
+        let admins_final = client.get_members_by_role(&Role::Admin);
+        assert_eq!(admins_final.len(), 2);
+        assert!(!admins_final.contains(&admin2));
+
+        // Test ownership transfer
+        let new_owner = Address::generate(&env);
+        client.transfer_ownership(&owner, &new_owner);
+
+        let owners_final = client.get_members_by_role(&Role::Owner);
+        assert_eq!(owners_final.len(), 1);
+        assert_eq!(owners_final.get(0).unwrap(), new_owner);
+
+        let admins_final_final = client.get_members_by_role(&Role::Admin);
+        assert!(admins_final_final.contains(&owner)); // old owner became admin
+    }
+
+    #[test]
+    fn test_has_permission_extended() {
+        let (env, owner, client) = setup_contract();
+
+        client.initialize(&owner);
+
+        let viewer = Address::generate(&env);
+        let member = Address::generate(&env);
+        let admin = Address::generate(&env);
+        let random_addr = Address::generate(&env);
+
+        client.assign_role(&owner, &admin, &Role::Admin);
+        client.assign_role(&owner, &member, &Role::Member);
+        client.assign_role(&admin, &viewer, &Role::Viewer);
+
         assert_eq!(client.has_permission(&owner, &Role::Admin), true);
         assert_eq!(client.has_permission(&owner, &Role::Member), true);
         assert_eq!(client.has_permission(&owner, &Role::Viewer), true);

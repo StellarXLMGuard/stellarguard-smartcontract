@@ -41,6 +41,8 @@ pub enum Error {
     ThresholdBreach = 12,
     /// Transaction has been canceled.
     Canceled = 13,
+    /// Balance addition would overflow i128.
+    BalanceOverflow = 14,
 }
 
 // ============================================================================
@@ -222,9 +224,11 @@ impl TreasuryContract {
         let token_client = token::TokenClient::new(&env, &asset);
         token_client.transfer(&from, &env.current_contract_address(), &amount);
 
-        // Update balance
+        // Update balance — use checked arithmetic to prevent i128 overflow.
         let current_balance: i128 = env.storage().instance().get(&DataKey::Balance).unwrap_or(0);
-        let new_balance = current_balance + amount;
+        let new_balance = current_balance
+            .checked_add(amount)
+            .ok_or(Error::BalanceOverflow)?;
         env.storage()
             .instance()
             .set(&DataKey::Balance, &new_balance);
@@ -792,6 +796,14 @@ impl TreasuryContract {
     /// Get the current treasury balance.
     pub fn get_balance(env: Env) -> i128 {
         env.storage().instance().get(&DataKey::Balance).unwrap_or(0)
+    }
+
+    /// Get the current reserved balance (sum of all pending proposal amounts).
+    pub fn get_reserved(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::Reserved)
+            .unwrap_or(0)
     }
 
     /// Get the token balance for a specific depositor and token contract.
@@ -2104,6 +2116,70 @@ mod test {
         let long_memo = String::from_str(&env, "abcdefghijklmnopqrstuvwxyz123");
         let result = client.try_propose_withdrawal(&signer, &recipient, &1_000_000, &long_memo);
         assert_eq!(result, Err(Ok(Error::InvalidAmount)));
+    }
+
+    #[test]
+    fn test_get_reserved() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signer2 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1.clone(), signer2.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 2, &signers);
+
+        // Returns 0 after initialization.
+        assert_eq!(client.get_reserved(), 0);
+
+        // Increases after proposal creation.
+        mint_asset(&env, &asset, &signer1, 5_000_000);
+        client.deposit(&signer1, &5_000_000);
+        let recipient = Address::generate(&env);
+        let tx_id = client.propose_withdrawal(
+            &signer1,
+            &recipient,
+            &1_000_000,
+            &String::from_str(&env, "rent"),
+        );
+        assert_eq!(client.get_reserved(), 1_000_000);
+
+        // Decreases after execution.
+        client.approve(&signer2, &tx_id);
+        client.execute(&signer1, &tx_id);
+        assert_eq!(client.get_reserved(), 0);
+    }
+
+    /// Verifies that BalanceOverflow (error code 14) is a defined, distinct error
+    /// variant, and that very large deposits that still fit within i128 succeed.
+    ///
+    /// Note: in practice the SAC itself rejects a transfer whose recipient
+    /// balance would exceed i128::MAX, so the SAC's error fires before our
+    /// checked_add guard for true overflow.  The guard is defence-in-depth for
+    /// edge cases where balances diverge (e.g., direct storage migration).
+    #[test]
+    fn test_balance_overflow_error_is_defined() {
+        // BalanceOverflow must have a distinct numeric value so contract callers
+        // can distinguish it from other errors.
+        assert_eq!(Error::BalanceOverflow as u32, 14);
+    }
+
+    #[test]
+    fn test_deposit_large_amount_within_i128_succeeds() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer.clone()]);
+        let asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        let depositor = Address::generate(&env);
+        let large: i128 = i128::MAX / 2;
+        mint_asset(&env, &asset, &depositor, large);
+        client.deposit(&depositor, &large);
+        assert_eq!(client.get_balance(), large);
+
+        // A second smaller deposit still within i128 range also works.
+        mint_asset(&env, &asset, &depositor, 1);
+        client.deposit(&depositor, &1);
+        assert_eq!(client.get_balance(), large + 1);
     }
 
     #[test]

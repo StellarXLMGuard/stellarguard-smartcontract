@@ -44,6 +44,8 @@ pub enum Error {
     StorageError = 14,
     /// Attempted to add an address that is already a member.
     MemberAlreadyExists = 15,
+    /// Initial members list contains duplicate addresses.
+    DuplicateMember = 16,
 }
 
 // ============================================================================
@@ -183,6 +185,15 @@ impl GovernanceContract {
         }
 
         admin.require_auth();
+
+        // Reject duplicate members
+        for i in 0..members.len() {
+            for j in (i + 1)..members.len() {
+                if members.get(i).unwrap() == members.get(j).unwrap() {
+                    return Err(Error::DuplicateMember);
+                }
+            }
+        }
 
         env.storage().instance().set(&DataKey::Initialized, &true);
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -637,6 +648,14 @@ impl GovernanceContract {
         Self::get_members(env).len()
     }
 
+    /// Return the current proposal counter value.
+    pub fn get_proposal_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ProposalCounter)
+            .unwrap_or(0)
+    }
+
     /// Check if an address has voted on a proposal.
     pub fn has_voted(env: Env, proposal_id: u64, voter: Address) -> bool {
         env.storage()
@@ -801,6 +820,56 @@ mod test {
         assert_eq!(config.member_count, 2);
         assert_eq!(config.quorum_percent, 50);
         assert_eq!(config.voting_period, 1000);
+    }
+
+    #[test]
+    fn test_initialize_rejects_duplicate_members() {
+        let (env, admin, client) = setup_contract();
+
+        let member = Address::generate(&env);
+        let members = Vec::from_array(&env, [member.clone(), member.clone()]);
+
+        let result = client.try_initialize(&admin, &members, &50, &1000);
+        assert_eq!(result, Err(Ok(Error::DuplicateMember)));
+    }
+
+    #[test]
+    fn test_get_proposal_count_returns_zero_after_init() {
+        let (env, admin, client) = setup_contract();
+        let member1 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1]);
+        client.initialize(&admin, &members, &50, &1000);
+        assert_eq!(client.get_proposal_count(), 0);
+    }
+
+    #[test]
+    fn test_get_proposal_count_increments_after_proposal_creation() {
+        let (env, admin, client) = setup_contract();
+        let member1 = Address::generate(&env);
+        let members = Vec::from_array(&env, [member1.clone()]);
+        client.initialize(&admin, &members, &50, &1000);
+
+        assert_eq!(client.get_proposal_count(), 0);
+
+        client.create_proposal(
+            &member1,
+            &text(&env, "test1"),
+            &text(&env, "test1"),
+            &ProposalAction::General,
+            &0,
+            &member1,
+        );
+        assert_eq!(client.get_proposal_count(), 1);
+
+        client.create_proposal(
+            &member1,
+            &text(&env, "test2"),
+            &text(&env, "test2"),
+            &ProposalAction::General,
+            &0,
+            &member1,
+        );
+        assert_eq!(client.get_proposal_count(), 2);
     }
 
     #[test]

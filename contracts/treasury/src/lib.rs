@@ -860,6 +860,28 @@ impl TreasuryContract {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Return a slice of signers starting at `start`, up to `limit` entries.
+    pub fn get_signers_paginated(env: Env, start: u32, limit: u32) -> Vec<Address> {
+        let signers: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Signers)
+            .unwrap_or(Vec::new(&env));
+
+        let mut page = Vec::new(&env);
+        if limit == 0 {
+            return page;
+        }
+
+        let total = signers.len();
+        let mut index = start;
+        while index < total && page.len() < limit {
+            page.push_back(signers.get(index).unwrap());
+            index += 1;
+        }
+        page
+    }
+
     // ========================================================================
     // Admin Functions
     // ========================================================================
@@ -1231,6 +1253,55 @@ mod test {
         assert_eq!(fetched.get(0).unwrap(), signer1);
         assert_eq!(fetched.get(1).unwrap(), signer2);
         assert_eq!(fetched.get(2).unwrap(), signer3);
+    }
+
+    #[test]
+    fn test_get_signers_paginated_two_pages() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signer2 = Address::generate(&env);
+        let signer3 = Address::generate(&env);
+        let signer4 = Address::generate(&env);
+        let signer5 = Address::generate(&env);
+        let signers = Vec::from_array(
+            &env,
+            [
+                signer1.clone(),
+                signer2.clone(),
+                signer3.clone(),
+                signer4.clone(),
+                signer5.clone(),
+            ],
+        );
+
+        let _asset = initialize_treasury(&client, &env, &admin, 2, &signers);
+
+        let page1 = client.get_signers_paginated(&0, &2);
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1.get(0).unwrap(), signer1);
+        assert_eq!(page1.get(1).unwrap(), signer2);
+
+        let page2 = client.get_signers_paginated(&2, &2);
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2.get(0).unwrap(), signer3);
+        assert_eq!(page2.get(1).unwrap(), signer4);
+
+        let page3 = client.get_signers_paginated(&4, &2);
+        assert_eq!(page3.len(), 1);
+        assert_eq!(page3.get(0).unwrap(), signer5);
+    }
+
+    #[test]
+    fn test_get_signers_paginated_empty_and_beyond_end() {
+        let (env, admin, _contract_id, client) = setup_contract();
+
+        let signer1 = Address::generate(&env);
+        let signers = Vec::from_array(&env, [signer1]);
+        let _asset = initialize_treasury(&client, &env, &admin, 1, &signers);
+
+        assert_eq!(client.get_signers_paginated(&0, &0).len(), 0);
+        assert_eq!(client.get_signers_paginated(&10, &5).len(), 0);
     }
 
     #[test]

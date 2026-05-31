@@ -726,6 +726,36 @@ impl GovernanceContract {
         Ok(())
     }
 
+    /// Update the voting period. Admin only.
+    pub fn set_voting_period(env: Env, admin: Address, new_period: u32) -> Result<(), Error> {
+        Self::require_initialized(&env)?;
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        admin.require_auth();
+
+        // Validate voting period must be greater than 0
+        if new_period == 0 {
+            return Err(Error::InvalidProposal);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::VotingPeriod, &new_period);
+
+        env.events()
+            .publish((symbol_short!("gov"), symbol_short!("vperiod")), new_period);
+
+        Ok(())
+    }
+
     /// Upgrade contract WASM. Admin only.
     pub fn upgrade(
         env: Env,
@@ -1659,6 +1689,68 @@ mod test {
         // Test maximum valid value
         client.set_quorum(&admin, &100);
         assert_eq!(client.get_config().quorum_percent, 100);
+    }
+
+    #[test]
+    fn test_set_voting_period() {
+        let (env, admin, client) = setup_contract();
+        client.initialize(&admin, &Vec::new(&env), &50, &1000);
+
+        client.set_voting_period(&admin, &2000);
+        assert_eq!(client.get_config().voting_period, 2000);
+    }
+
+    #[test]
+    fn test_set_voting_period_rejects_zero() {
+        let (env, admin, client) = setup_contract();
+        client.initialize(&admin, &Vec::new(&env), &50, &1000);
+
+        let result = client.try_set_voting_period(&admin, &0);
+        assert_eq!(result, Err(Ok(Error::InvalidProposal)));
+    }
+
+    #[test]
+    fn test_set_voting_period_accepts_valid_periods() {
+        let (env, admin, client) = setup_contract();
+        client.initialize(&admin, &Vec::new(&env), &50, &1000);
+
+        // Test small period
+        client.set_voting_period(&admin, &1);
+        assert_eq!(client.get_config().voting_period, 1);
+
+        // Test large period
+        client.set_voting_period(&admin, &1_000_000);
+        assert_eq!(client.get_config().voting_period, 1_000_000);
+    }
+
+    #[test]
+    fn test_set_voting_period_rejects_non_admin() {
+        let (env, admin, client) = setup_contract();
+        client.initialize(&admin, &Vec::new(&env), &50, &1000);
+
+        let non_admin = Address::generate(&env);
+        let result = client.try_set_voting_period(&non_admin, &2000);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
+
+    #[test]
+    fn test_set_voting_period_emits_event() {
+        let (env, admin, client) = setup_contract();
+        client.initialize(&admin, &Vec::new(&env), &50, &1000);
+
+        client.set_voting_period(&admin, &2000);
+
+        let events = env.events().all();
+        let vperiod_event = events.get(events.len() - 1).unwrap();
+        let expected_topics: Vec<Val> = vec![
+            &env,
+            symbol_short!("gov").into_val(&env),
+            symbol_short!("vperiod").into_val(&env),
+        ];
+        assert_eq!(vperiod_event.1, expected_topics);
+
+        let event_data: u32 = vperiod_event.2.try_into_val(&env).unwrap();
+        assert_eq!(event_data, 2000);
     }
 
     #[test]

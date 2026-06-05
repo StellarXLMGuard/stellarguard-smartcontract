@@ -1,0 +1,41 @@
+# Build artifacts
+dist/
+build/
+target/
+node_modules/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.production
+.env.docker
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Soroban
+*.wasm
+*.d
+issue.md
+pr.md
